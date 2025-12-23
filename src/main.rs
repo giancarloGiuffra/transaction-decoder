@@ -2,9 +2,19 @@ mod transaction;
 
 use std::io::{Error, Read};
 use std::error::Error as StdError;
+use clap::Parser;
 use sha2::Digest;
 use transaction::{Amount, Input, Output, Transaction};
 use crate::transaction::{Script, TxId};
+
+#[derive(Parser)]
+#[command(name = "Transaction Decoder")]
+#[command(version = "1.0.0")]
+#[command(about = "Bitcoin Transaction Decoder")]
+struct Cli {
+    #[arg(required = true, help = "(string) hex of the transaction to decode")]
+    transaction_hex: String,
+}
 
 fn read_compact_size(transaction_bytes: &mut &[u8]) -> Result<u64, Error> {
     let mut compact_size = [0;1];
@@ -115,8 +125,8 @@ fn decode(transaction_hex: String) -> Result<String, Box<dyn StdError>>{
 }
 
 fn main() {
-    let transaction_hex = "01000000015180fff4155787703d10f03cca1566794516ac65a67764e571dc9c34931f321d050000006a473044022100a98648381f405a6882989faa500147c7cb9f4ce03e912d18529fb3609e243a47021f798214efe634e8c47e158edae534f5652b98ce1bd3693fa95dcdd2c699d987012102bd63ab2a6215bdd16d554ea3fd5d83843bff9c76e0b8c6c150d58ee6ca7ea525ffffffff01a08b2013000000001976a9142f58e6245481be77894d5f0f0e2641decdafc44788ac00000000";
-    match decode(transaction_hex.to_string()) {
+    let cli = Cli::parse();
+    match decode(cli.transaction_hex) {
         Ok(decoded) => println!("Transaction: {}", decoded),
         Err(error) => eprintln!("{}", error)
     }
