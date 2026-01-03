@@ -3,25 +3,25 @@ use serde::{Serialize, Serializer};
 #[derive(Debug, Serialize)]
 pub struct Transaction {
     pub transaction_id: TxId,
-    pub(crate) version: u32,
-    pub(crate) inputs: Vec<Input>,
-    pub(crate) outputs: Vec<Output>,
+    pub version: u32,
+    pub inputs: Vec<Input>,
+    pub outputs: Vec<Output>,
     pub lock_time: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Input {
-    pub(crate) txid: TxId,
-    pub(crate) output_index: u32,
-    pub(crate) script_sig: Script,
-    pub(crate) sequence: u32,
+    pub txid: TxId,
+    pub vout: u32,
+    pub script_sig: Script,
+    pub sequence: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Output {
     #[serde(serialize_with = "as_btc")]
-    pub(crate) amount: Amount,
-    pub(crate) script_pubkey: Script,
+    pub amount: Amount,
+    pub script_pubkey: Script,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,3 +85,4 @@ fn as_btc<S: Serializer, T: BitcoinValue>(t : &T, s: S) -> Result<S::Ok, S::Erro
     let btc = t.to_btc();
     s.serialize_f64(btc)
 }
+
