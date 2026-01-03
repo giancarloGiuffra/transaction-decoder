@@ -2,18 +2,22 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::io::{BufRead, Write};
 use serde::{Serialize, Serializer};
-use serde::ser::SerializeStruct;
+use serde::ser::{SerializeSeq, SerializeStruct};
 use sha2::Digest;
 
 #[derive(Debug)]
 pub enum Error{
     Io(std::io::Error),
+    UnsupportedSegwitFlag(u8),
+    ParseFailed(&'static str),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             Error::Io(ref err) => write!(f, "IO error: {}", err),
+            Error::UnsupportedSegwitFlag(flag) => write!(f, "Unsupported segwit flag: {}", flag),
+            Error::ParseFailed(message) => write!(f, "Parse failed: {}", message),
         }
     }
 }
@@ -54,12 +58,64 @@ impl Serialize for Transaction {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct TxIn {
     pub txid: TxId,
-    pub vout: u32,
+    pub output_index: u32,
     pub script_sig: Script,
-    pub sequence: u32,
+    pub witness: Witness,
+    pub sequence: u32
+}
+
+impl Serialize for TxIn {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        let mut tx_in = serializer.serialize_struct("TxIn", 5)?;
+        tx_in.serialize_field("txid", &self.txid)?;
+        tx_in.serialize_field("vout", &self.output_index)?;
+        tx_in.serialize_field("script_sig", &self.script_sig)?;
+
+        if !&self.witness.is_empty() {
+            tx_in.serialize_field("witness", &self.witness)?;
+        }
+        tx_in.serialize_field("sequence", &self.sequence)?;
+        tx_in.end()
+    }
+}
+
+#[derive(Debug)]
+pub struct Witness {
+    content: Vec<Vec<u8>>
+}
+
+impl Witness {
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+}
+
+impl Witness {
+    pub fn new() -> Self {
+        Witness {
+            content: vec![]
+        }
+    }
+}
+
+impl Serialize for Witness {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        let mut seq = serializer.serialize_seq(Some(self.content.len()))?;
+        for element in self.content.iter() {
+            seq.serialize_element(&hex::encode(&element))?;
+        }
+
+        seq.end()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -221,9 +277,10 @@ impl Decodable for TxIn {
     fn consensus_decode<R: BufRead + ?Sized>(r: &mut R) -> Result<Self, Error> {
         Ok(TxIn{
             txid: TxId::consensus_decode(r)?,
-            vout: u32::consensus_decode(r)?,
+            output_index: u32::consensus_decode(r)?,
             script_sig: Script::from_hex(String::consensus_decode(r)?),
             sequence: u32::consensus_decode(r)?,
+            witness: Witness::new()
         })
     }
 }
@@ -267,14 +324,55 @@ impl Decodable for Vec<TxOut> {
     }
 }
 
+impl Decodable for Witness {
+    fn consensus_decode<R: BufRead + ?Sized>(r: &mut R) -> Result<Self, Error> {
+        let mut witness_items = Vec::new();
+        let count = u8::consensus_decode(r)?;
+        for _ in 0..count {
+            let length = CompactSize::consensus_decode(r)?.0;
+            let mut buffer = vec![0u8; length as usize];
+            r.read_exact(&mut buffer).map_err(Error::Io)?;
+            witness_items.push(buffer);
+        }
+        Ok(Witness { content: witness_items })
+    }
+}
+
 impl Decodable for Transaction {
     fn consensus_decode<R: BufRead + ?Sized>(r: &mut R) -> Result<Self, Error> {
-        Ok(Transaction {
-            version: u32::consensus_decode(r)?,
-            inputs: Vec::<TxIn>::consensus_decode(r)?,
-            outputs: Vec::<TxOut>::consensus_decode(r)?,
-            lock_time: u32::consensus_decode(r)?,
-        })
+        let version = u32::consensus_decode(r)?;
+        let inputs = Vec::<TxIn>::consensus_decode(r)?;
+        if inputs.is_empty() {
+            let segwit_flag = u8::consensus_decode(r)?;
+            match segwit_flag {
+                1 => {
+                    let mut inputs = Vec::<TxIn>::consensus_decode(r)?;
+                    let outputs = Vec::<TxOut>::consensus_decode(r)?;
+                    for txin in inputs.iter_mut() {
+                        txin.witness = Witness::consensus_decode(r)?;
+                    }
+
+                    if !inputs.is_empty() && inputs.iter().all(|input| input.witness.is_empty()) {
+                        Err(Error::ParseFailed("witness flag set but no witnesses"))?
+                    } else {
+                        Ok(Transaction {
+                            version,
+                            inputs,
+                            outputs,
+                            lock_time: u32::consensus_decode(r)?,
+                        })
+                    }
+                },
+                _ => Err(Error::UnsupportedSegwitFlag(segwit_flag))
+            }
+        } else {
+            Ok(Transaction {
+                version,
+                inputs,
+                outputs: Vec::<TxOut>::consensus_decode(r)?,
+                lock_time: u32::consensus_decode(r)?,
+            })
+        }
     }
 }
 
@@ -382,7 +480,7 @@ impl Encodable for TxIn {
     fn consensus_encode<W: Write>(&self, w: &mut W) -> Result<usize, Error> {
         let mut len = 0;
         len += self.txid.consensus_encode(w)?;
-        len += self.vout.consensus_encode(w)?;
+        len += self.output_index.consensus_encode(w)?;
         len += self.script_sig.consensus_encode(w)?;
         len += self.sequence.consensus_encode(w)?;
         Ok(len)

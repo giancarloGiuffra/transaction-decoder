@@ -7,3 +7,11 @@ fn test_legacy_transaction(){
     let decoded_json = transaction_decoder::decode(raw_transaction_hex.to_string()).unwrap();
     assert_eq!(expected_json, decoded_json);
 }
+
+#[test]
+fn test_segwit_transaction(){
+    let raw_transaction_hex = "02000000000101d2467ec855e99689ec0ac5978708c30cf4206e49e30dd81a2377c411cce40f0c0100000000feffffff028f0b1f00000000001600146f048d1381aa546a3e89e87f7549efc45f150b7fa9ce0f0000000000160014d850c02b89821f0f189ca7e81756c102241f7f4002473044022036c03ad8796f865c9348403fb705d5b984a4ef9565e8b0c81a1069f0f36bbeeb022034e9d5679e9783a441586fae034c78c60854ed71b7b53e6ef169e4f58153356101210355dd8af3cbfe5c3d3424b441069455a59ce0c8d5fe628da0913dae55037ef928bff62400";
+    let expected_json = fs::read_to_string("tests/test_segwit_transaction.json").unwrap();
+    let decoded_json = transaction_decoder::decode(raw_transaction_hex.to_string()).unwrap();
+    assert_eq!(expected_json, decoded_json);
+}
